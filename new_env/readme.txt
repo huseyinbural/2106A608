@@ -1,8 +1,11 @@
-This GUI can only show iris dataset scatter gprah, I have added logistic regression code for it bu couldnt implement since
-lack of information how to use pyqt package.
+GUI has been implemented Dimensionaity Reduction and also Model Validation.
+In order to use Dimensionality Reduction one must to select the tabs and after selecting
+can choose pca, lda, t-sne, k-mean clustering with their parameters.
 
-Instead of Boston House, California House Price dataset has been used. After selecting that dataset, any train button will
-visualize graphs downside.
+In order to use Model Validation, one must to select either Custom Split or K-Fold CV from Validation Settings in
+Data Section window.
 
-If it is allowed I will recreate this and cover this code as soon as possible. Leaving that heavy duty to last hours was
-not wise at all. Sorry for that.
+Model Validation is only available for Linear Regression and Logistic Regression but not the other Classical ML
+algoritshmbecause that was the first assingment and since I will get no credits for it. I thought these two algoritms
+will be sufficient for evaluating custom split
+or K-Fold CV
