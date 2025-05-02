@@ -1390,6 +1390,7 @@ class MLCourseGUI(QMainWindow):
         self.figure.tight_layout()
         self.canvas.draw()
 
+
     def show_error(self, message):
         """Show error message dialog"""
         QMessageBox.critical(self, "Error", message)

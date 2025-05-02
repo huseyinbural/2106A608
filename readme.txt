@@ -8,4 +8,4 @@ Data Section window.
 Model Validation is only available for Linear Regression and Logistic Regression but not the other Classical ML
 algoritshmbecause that was the first assingment and since I will get no credits for it. I thought these two algoritms
 will be sufficient for evaluating custom split
-or K-Fold CV
+or K-Fold CV.
