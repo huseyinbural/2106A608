@@ -1,3 +1,25 @@
+# Hocam Digits veya MNIST Datasetini seçin, isterseniz train test cv yapıp save selections deyin ister yapmayın
+# Deep Learning sekmesine girdiğinizde CNN için layer ve parametrelerinizi girin.
+#Add layer butonu ile layer ekleyebilirsiinz, ekkedikten sonra save model deyip ilgili foldere h5 modelini save edebilirsiniz
+# Load Model yapıp önceden oluturduğunuz modelleri kullaniblirsiniz
+# Hocam RNN için gerçekten nasıl direkt bir gui hazırlanır bilemedim. Çok farklı tipte verileri load custom data ile
+#yükleyebiliriz ve her birinin inputu vesaire farklı olur. Bu projeden bağımsız araştırıp öğrenmeyi kafama koydum.
+# Bu dersin bu kadar pratik ve kaliteli bi ödevle geçmesi her ne kadar beceremesem de gerçekten kaliteli tam olarak
+# olması gerektiği gibiydi ve makine öğrenmesine kafayı takmama sebep oldu, teşekkürler.
+
+"""NASIL ÇALIŞIR BU KOD"""
+# Bir csv dataseti seçilir, amaaa sadece tek bir zaman serisi ve target olacak şekilde maalesef bunun her türlüsünü
+# yapacak bir kod geliştirmek benim harcım değil sanırım ve de ciddi bir mwesai ister. O kadar azimli değilim maalesef :(
+# Akabinde zaten kullanıcının karşısına oran seçme yeri gelir oran seçilir akabinde kullanıcı deep learning sekmesinde rnn
+# gelir ve LSTM ---> DENSE(1) Layerlerini seçtiktken sonra ekranda çıktılar belirir
+# CNN için ise MNIST seçilir, sonra split dataset yapılır save selections seçilir. Akabinde ilgili layerler sırayla eklenir
+# en son flatten ve sonrasında da Dense(10,softmax) seçilir bunu da kullanıcı seçmek zorunda, ve traindeilince ilgili çıktı
+# alınır. Digits ve diğer datasetleri için de input_shape fonksiyonunu seçilen datasete göre değiştirmem gerek sanırım
+# Save/Load Model zaten çalışması gerektiği gibi çalışıyor.
+
+
+
+
 import sys
 import numpy as np
 import pandas as pd
@@ -8,7 +30,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QGroupBox, QScrollArea, QTextEdit, QStatusBar,QInputDialog,
                              QProgressBar, QCheckBox,QListWidget, QGridLayout, QMessageBox,
                              QDialog, QLineEdit)
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from PyQt6.QtCore import Qt, pyqtSlot
 import matplotlib.pyplot as plt
 from fastai.metrics import perplexity
@@ -22,6 +44,7 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
+from tensorflow import timestamp
 from tensorflow.keras.models import load_model
 from tensorflow.keras.datasets import imdb
 from tensorflow.keras.preprocessing.sequence import pad_sequences
@@ -68,7 +91,10 @@ class MLCourseGUI(QMainWindow):
         self.model = None
         self.rnn_layer_config = []
         self.rnn_layers_list = None
-
+        self.train_ratio = None
+        self.test_ratio = None
+        self.train = None
+        self.test = None
 
         # Create components
         self.create_data_section()
@@ -200,7 +226,6 @@ class MLCourseGUI(QMainWindow):
             self.X_train = self.data.data
             self.y_train = self.data.target
 
-
     def load_custom_data(self):
         """Load custom dataset from CSV file"""
         try:
@@ -212,30 +237,68 @@ class MLCourseGUI(QMainWindow):
             )
 
             if file_name:
-                # Load data
-                data = pd.read_csv(file_name)
+                df = pd.read_csv(file_name)
 
-                # Ask user to select target column
-                target_col = self.select_target_column(data.columns)
+                target_col = self.select_target_column(df.columns)
+                if not target_col:
+                    return
 
-                if target_col:
-                    X = data.drop(target_col, axis=1)
-                    y = data[target_col]
+                y = df[target_col].astype('float32').values.reshape(-1, 1)
 
-                    # Split data
-                    test_size = self.split_spin.value()
-                    self.X_train, self.X_test, self.y_train, self.y_test = \
-                        model_selection.train_test_split(X, y,
-                                                         test_size=test_size,
-                                                         random_state=42)
+                self.scaler = MinMaxScaler(feature_range=(0, 1))
+                self.y_scaled = self.scaler.fit_transform(y)
 
-                    # Apply scaling if selected
-                    self.apply_scaling()
+                print(f"Veri boyutu: {len(self.y_scaled)}")
+                print(f"veri shapesi :{self.y_scaled.shape}")
+                self.train_test()
 
-                    self.status_bar.showMessage(f"Loaded custom dataset: {file_name}")
+                train_ratio = self.train_ratio
+                train_size = int(len(self.y_scaled) * train_ratio)
+                self.train = self.y_scaled[:train_size]
+                self.test = self.y_scaled[train_size:]
+
+                #self.apply_scaling()
+                self.status_bar.showMessage(f"Loaded custom dataset: {file_name}")
 
         except Exception as e:
             self.show_error(f"Error loading custom dataset: {str(e)}")
+
+    def train_test(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Test-Train Split")
+        layout = QHBoxLayout(dialog)
+
+        # Train ratio
+        layout.addWidget(QLabel("Train Ratio (%):"))
+        train_spin = QSpinBox()
+        train_spin.setRange(1, 99)
+        train_spin.setValue(80)
+        layout.addWidget(train_spin)
+
+        # Test ratio
+        layout.addWidget(QLabel("Test Ratio (%):"))
+        test_spin = QSpinBox()
+        test_spin.setRange(1, 99)
+        test_spin.setValue(20)
+        layout.addWidget(test_spin)
+
+        # OK button
+        ok_button = QPushButton("OK")
+        layout.addWidget(ok_button)
+
+        def on_ok():
+            total = train_spin.value() + test_spin.value()
+            if total != 100:
+                QMessageBox.warning(dialog, "Invalid Split", "Train + Test must equal 100%.")
+            else:
+                self.train_ratio = train_spin.value() / 100
+                self.test_ratio = test_spin.value() / 100
+                dialog.accept()
+
+        ok_button.clicked.connect(on_ok)
+
+        dialog.setLayout(layout)
+        dialog.exec()  # ← BU SATIR OLMADAN HİÇBİR ŞEY GÖZÜKMEZ
 
     def select_target_column(self, columns):
         """Dialog to select target column from dataset"""
@@ -640,10 +703,15 @@ class MLCourseGUI(QMainWindow):
         self.canvas = FigureCanvas(self.figure)
         viz_layout.addWidget(self.canvas)
 
-        # Metrics display
+        # Sağ: Tahmin grafiği için ikinci figure
+        self.figure_prediction = Figure(figsize=(5, 4))
+        self.canvas_prediction = FigureCanvas(self.figure_prediction)
+        viz_layout.addWidget(self.canvas_prediction)
+
+        """# Metrics display
         self.metrics_text = QTextEdit()
         self.metrics_text.setReadOnly(True)
-        viz_layout.addWidget(self.metrics_text)
+        viz_layout.addWidget(self.metrics_text)"""
 
         viz_group.setLayout(viz_layout)
         self.layout.addWidget(viz_group)
@@ -1204,7 +1272,7 @@ class MLCourseGUI(QMainWindow):
                 l2_label.setEnabled(False)
                 l2_input.setEnabled(False)
 
-                self.layer_param_inputs["l2_lambda"] = l2_input
+                #self.layer_param_inputs["l2_lambda"] = l2_input
 
                 def toggle_l2(value):
                     enabled = l2_checkbox.isChecked()
@@ -1564,6 +1632,17 @@ class MLCourseGUI(QMainWindow):
         rnn_type_layout.addWidget(self.rnn_type_combo)
         arch_layout.addLayout(rnn_type_layout)"""
 
+        # Timestep girişi
+        timestep_layout = QHBoxLayout()
+        timestep_label = QLabel("Timestep:")
+        self.timestep_input = QSpinBox()  # QSpinBox kullanarak sayısal giriş sağlıyoruz
+        self.timestep_input.setMinimum(1)  # Minimum timestep değeri 1 olabilir
+        self.timestep_input.setMaximum(1000)  # Maksimum timestep değeri (isteğe göre ayarlanabilir)
+        self.timestep_input.setValue(10)  # Başlangıç değeri olarak 10 ayarlıyoruz
+        timestep_layout.addWidget(timestep_label)
+        timestep_layout.addWidget(self.timestep_input)
+        arch_layout.addLayout(timestep_layout)  # Optimizer'dan önce ekliyoruz
+        #print(self.timestep_input.value())
         # Optimizer seçimi
         optimizer_layout = QHBoxLayout()
         optimizer_label = QLabel("Optimizer:")
@@ -1572,7 +1651,6 @@ class MLCourseGUI(QMainWindow):
         optimizer_layout.addWidget(optimizer_label)
         optimizer_layout.addWidget(optimizer_combo)
         arch_layout.addLayout(optimizer_layout)
-
         def on_optimizer_changed(text):
             self.selected_optimizer = text
 
@@ -1641,11 +1719,9 @@ class MLCourseGUI(QMainWindow):
 
     def train_neural_networks(self):
         """Train the neural network with current configuration"""
-        #print(self.cnn_layer_config)
+        # print(self.cnn_layer_config)
         global optimizer
         if not self.cnn_layer_config and self.model is None:
-
-
             self.show_error("Please add at least one CNN layer to the network or be sure you loaded your model")
             return
 
@@ -1664,9 +1740,6 @@ class MLCourseGUI(QMainWindow):
             epochs = self.epochs_spin.value()
             learning_rate = self.lr_spin.value()
 
-
-
-
             # Prepare data for neural network
             if len(self.X_train.shape) == 1:
                 X_train = self.X_train.reshape(-1, 1)
@@ -1676,13 +1749,12 @@ class MLCourseGUI(QMainWindow):
                 X_train = self.X_train
                 X_test = self.X_test
 
-
             # One-hot encode target for classification
             y_train = tf.keras.utils.to_categorical(self.y_train)
             y_test = tf.keras.utils.to_categorical(self.y_test)
-            print(y_train[0:5]) #one-hot encoding başarılı
+            print(y_train[0:5])  # one-hot encoding başarılı
 
-            print(len(y_train))         # 56000
+            print(len(y_train))  # 56000
 
             # Compile model
             if self.selected_optimizer == "Adam":
@@ -1693,24 +1765,24 @@ class MLCourseGUI(QMainWindow):
                 optimizer = optimizers.RMSprop(learning_rate=learning_rate)
             else:
                 optimizer = optimizers.Adam(learning_rate=learning_rate)
-            #optimizer = optimizers[self.selected_optimizer](learning_rate=self.lr_spin.value()) hatalı
-            #optimizer = optimizers.Adam(learning_rate=learning_rate) hatalı ama son çare
-            self.model.compile(optimizer=optimizer,
-                          loss='categorical_crossentropy',
-                          metrics=['accuracy'])
+            # optimizer = optimizers[self.selected_optimizer](learning_rate=self.lr_spin.value()) hatalı
+            # optimizer = optimizers.Adam(learning_rate=learning_rate) hatalı ama son çare
 
+            self.model.compile(optimizer=optimizer,
+                               loss='categorical_crossentropy',
+                               metrics=['accuracy'])
 
             """for layer in self.model.layers:
 
 """
-            #0x0000023E61B26F10 >
+            # 0x0000023E61B26F10 >
 
             # Train model
             history = self.model.fit(X_train, y_train,
-                                batch_size=batch_size,
-                                epochs=epochs,
-                                validation_data=(X_test, y_test),
-                                callbacks=[self.create_progress_callback()])
+                                     batch_size=batch_size,
+                                     epochs=epochs,
+                                     validation_data=(X_test, y_test),
+                                     callbacks=[self.create_progress_callback()])
 
             # Update visualization with training history
             self.plot_training_history(history)
@@ -1724,48 +1796,102 @@ class MLCourseGUI(QMainWindow):
     def create_neural_network(self):
         """Create neural network based on current configuration"""
         model = models.Sequential()
+        if not self.rnn_layer_config:
+            for i, layer_config in enumerate(self.cnn_layer_config):
+                layer_type = layer_config["type"]
+                params = layer_config["params"]
 
+                if layer_type == "Dense":
+                    model.add(layers.Dense(**params))
 
+                elif layer_type == "Conv2D":
 
-        for i, layer_config in enumerate(self.layer_config):
-            layer_type = layer_config["type"]
-            params = layer_config["params"]
+                    model.add(layers.Conv2D(**params))
 
-            if layer_type == "Dense":
-                model.add(layers.Dense(**params))
+                elif layer_type == "MaxPooling2D":
+                    model.add(layers.MaxPooling2D())
 
-            elif layer_type == "Conv2D":
-                if len(model.layers) == 0:
-                    params['input_shape'] = self.X_train.shape[1:]
-                model.add(layers.Conv2D(**params))
+                elif layer_type == "Flatten":
+                    model.add(layers.Flatten())
 
-            elif layer_type == "MaxPooling2D":
-                model.add(layers.MaxPooling2D())
+                elif layer_type == "Dropout":
+                    model.add(layers.Dropout(**params))
 
-            elif layer_type == "Flatten":
-                model.add(layers.Flatten())
+                elif layer_type == "LSTM":
+                    model.add(
+                        layers.LSTM(input_shape=(self.timestep_input.value(), 1), **params))
 
-            elif layer_type == "Dropout":
-                model.add(layers.Dropout(**params))
+                elif layer_type == "GRU":
+                    if len(model.layers) == 0:
+                        # İlk katman, input_shape ekle
+                        params["input_shape"] = self.X_train.shape[1:]
+                    model.add(layers.GRU(**params))
+        else:
+            for i, layer_config in enumerate(self.rnn_layer_config):
+                layer_type = layer_config["type"]
+                params = layer_config["params"]
 
-            elif layer_type == "LSTM":
-                model.add(layers.LSTM(input_shape=self.X_train.shape[1:]),**params)
+                if layer_type == "Dense":
+                    model.add(layers.Dense(**params))
 
-            elif layer_type == "GRU":
-                if len(model.layers) == 0:
-                    # İlk katman, input_shape ekle
-                    params["input_shape"] = self.X_train.shape[1:]
-                model.add(layers.GRU(**params))
-        # Add output layer
+                elif layer_type == "Conv2D":
+
+                    model.add(layers.Conv2D(**params))
+
+                elif layer_type == "MaxPooling2D":
+                    model.add(layers.MaxPooling2D())
+
+                elif layer_type == "Flatten":
+                    model.add(layers.Flatten())
+
+                elif layer_type == "Dropout":
+                    model.add(layers.Dropout(**params))
+
+                elif layer_type == "LSTM":
+                    model.add(
+                        layers.LSTM(input_shape=(self.timestep_input.value(), 1), **params))
+
+                elif layer_type == "GRU":
+                    if len(model.layers) == 0:
+                        # İlk katman, input_shape ekle
+                        params["input_shape"] = self.X_train.shape[1:]
+                    model.add(layers.GRU(**params))
+
+        """# Add output layer for cnn
         num_classes = len(np.unique(self.y_train))
-        model.add(layers.Dense(num_classes, activation='softmax'))
-
-
+        model.add(layers.Dense(num_classes, activation='softmax'))"""
 
         return model
 
     def train_neural_network_rnn(self):
         """Train the RNN model with current configuration"""
+        timestep = self.timestep_input.value()
+        def create_dataset(dataset, time_step):
+            dataX, dataY = [], []
+            for i in range(len(dataset) - time_step - 1):
+                a = dataset[i:(i + time_step), 0]
+                dataX.append(a)
+                dataY.append(dataset[i + time_step, 0])
+            return np.array(dataX), np.array(dataY)
+
+
+        trainX, trainY = create_dataset(self.train, timestep)
+        testX, testY = create_dataset(self.test, timestep)
+        # 4. RNN giriş şekline sok (samples, time steps, features)
+        trainX = np.reshape(trainX, (trainX.shape[0], timestep, 1))
+        testX = np.reshape(testX, (testX.shape[0], timestep, 1))
+        trainY = trainY.reshape(-1, 1)
+        testY = testY.reshape(-1, 1)
+        self.X_train = trainX
+        self.y_train = trainY
+        self.X_test = testX
+        self.y_test = testY
+
+        print(trainX.shape) # (100,15,1)  (num_of_samples, adım sayısı, kullanılan feature sayısı) ellam
+        print("trainY shape ", trainY.shape)  # (100,)
+        print(testX.shape)  #(13,15,1)
+
+
         global optimizer
 
         if not self.rnn_layer_config and self.model is None:
@@ -1774,7 +1900,7 @@ class MLCourseGUI(QMainWindow):
         try:
             # Create and compile model
 
-            model = self.create_neural_network()
+            self.model = self.create_neural_network()
 
             # Get training parameters
             batch_size = self.batch_size_spin.value()
@@ -1790,14 +1916,14 @@ class MLCourseGUI(QMainWindow):
                 optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
             else:
                 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
-            model.compile(optimizer=optimizer,
-                          loss='categorical_crossentropy',
-                          metrics=['accuracy'])
+            self.model.compile(optimizer=optimizer,
+                          loss='mean_squared_error',
+                          metrics=['mae'])
 
             # Train model
             """self.y_train = to_categorical(self.y_train, num_classes=2)
             self.y_test = to_categorical(self.y_test, num_classes=2)"""
-            history = model.fit(self.X_train, self.y_train,
+            history = self.model.fit(self.X_train, self.y_train,
                                 batch_size=batch_size,
                                 epochs=epochs,
                                 validation_data=(self.X_test, self.y_test),
@@ -1806,9 +1932,15 @@ class MLCourseGUI(QMainWindow):
             # Update visualization with training history
             self.plot_training_history(history)
 
+            #print("y_scaled:", self.y_scaled)
+
+            print(self.model.summary())
+            self.plot_regression_predictions(self.y_scaled,self.timestep_input.value(),self.scaler)
+
         except Exception as e:
 
             self.show_error(f"Error training neural network: {str(e)}")
+            print(e)
 
 
     def create_progress_callback(self):
@@ -1906,22 +2038,80 @@ class MLCourseGUI(QMainWindow):
 
         self.metrics_text.setText(metrics_text)
 
+    def plot_regression_predictions(self, scaled_data, timestemp, scaler):
+        """GUI içinde LSTM regression tahmin grafiğini çizer"""
+
+        # 1. Grafik alanını temizle
+        self.figure_prediction.clear()
+
+        # 2. Ölçeklenmiş veriyi geri çevir
+        full_data = scaler.inverse_transform(scaled_data)
+        print(f"Shape of self.X_train: {self.X_train.shape}")
+        print(f"Shape of self.X_test: {self.X_test.shape}")
+        if self.model:  # Check if model exists
+            print(f"Model input shape: {self.model.input_shape}")
+        else:
+            print("self.model is None. Model was not built or trained.")
+        # 3. Tahminleri al ve geri ölçekle
+        train_pred = self.model.predict(self.X_train)
+        if train_pred.ndim == 3:
+            train_pred = train_pred[:, -1, :]
+        trainPredict = scaler.inverse_transform(train_pred)
+
+        test_pred = self.model.predict(self.X_test)
+        if test_pred.ndim == 3:
+            test_pred = test_pred[:, -1, :]
+        testPredict = scaler.inverse_transform(test_pred)
+
+        # 4. Tahminleri zaman eksenine yerleştir
+        trainPredictPlot = np.empty_like(full_data)
+        trainPredictPlot[:, :] = np.nan
+        trainPredictPlot[timestemp:len(trainPredict) + timestemp, :] = trainPredict
+
+        testPredictPlot = np.empty_like(full_data)
+        testPredictPlot[:, :] = np.nan
+        start = len(trainPredict) + (timestemp * 2) + 1
+        end = start + len(testPredict)
+        if end > len(full_data):
+            end = len(full_data)
+            testPredict = testPredict[:end - start]
+        testPredictPlot[start:end, :] = testPredict
+
+        # 5. Alt grafigi oluştur ve GUI'ye çiz
+        ax = self.figure_prediction.add_subplot(211)
+        ax.plot(full_data, label="Gerçek Veri")
+        ax.plot(trainPredictPlot, label="Eğitim Tahmini")
+        ax.plot(testPredictPlot, label="Test Tahmini")
+        ax.set_title("Gerçek vs. Tahmin (LSTM)")
+        ax.set_xlabel("Zaman")
+        ax.set_ylabel("Değer")
+        ax.legend()
+        ax.grid(True)
+
+        # 6. Canvas'ı güncelle
+        self.figure_prediction.tight_layout()
+        self.canvas_prediction.draw()
+
+
     def plot_training_history(self, history):
         """Plot neural network training history"""
         self.figure.clear()
 
-        # Plot training & validation accuracy
-        ax1 = self.figure.add_subplot(211)
-        ax1.plot(history.history['accuracy'])
-        ax1.plot(history.history['val_accuracy'])
-        ax1.set_title('Model Accuracy')
-
-        ax1.set_ylabel('Accuracy')
-        ax1.set_xlabel('Epoch')
-        ax1.legend(['Train', 'Test'])
+        # Eğer accuracy varsa çiz
+        if 'accuracy' in history.history:
+            ax1 = self.figure.add_subplot(211)
+            ax1.plot(history.history['accuracy'])
+            ax1.plot(history.history['val_accuracy'])
+            ax1.set_title('Model Accuracy')
+            ax1.set_ylabel('Accuracy')
+            ax1.set_xlabel('Epoch')
+            ax1.legend(['Train', 'Test'])
+            ax2 = self.figure.add_subplot(211)
+        else:
+            ax2 = self.figure.add_subplot(111)
 
         # Plot training & validation loss
-        ax2 = self.figure.add_subplot(212)
+        ax2 = self.figure.add_subplot(111)
         ax2.plot(history.history['loss'])
         ax2.plot(history.history['val_loss'])
         ax2.set_title('Model Loss')
